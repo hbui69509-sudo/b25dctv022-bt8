@@ -5,7 +5,7 @@ const DEFAULT_STUDENTS_MOCK = [
     id: "SV01",
     name: "Nguyễn Văn An",
     dob: "2003-05-15",
-    email: "an.nv@student.edu.vn",
+    email: "an.nv@stu.ptit.edu.vn",
     major: "Công nghệ thông tin",
     gpa: 3.6
   },
@@ -13,7 +13,7 @@ const DEFAULT_STUDENTS_MOCK = [
     id: "SV02",
     name: "Trần Thị Bích",
     dob: "2003-08-20",
-    email: "bich.tt@student.edu.vn",
+    email: "bich.tt@stu.ptit.edu.vn",
     major: "Khoa học máy tính",
     gpa: 3.85
   },
@@ -21,7 +21,7 @@ const DEFAULT_STUDENTS_MOCK = [
     id: "SV03",
     name: "Lê Hoàng Long",
     dob: "2002-11-03",
-    email: "long.lh@student.edu.vn",
+    email: "long.lh@stu.ptit.edu.vn",
     major: "Hệ thống thông tin",
     gpa: 2.7
   },
@@ -29,7 +29,7 @@ const DEFAULT_STUDENTS_MOCK = [
     id: "SV04",
     name: "Phạm Minh Tuấn",
     dob: "2003-02-18",
-    email: "tuan.pm@student.edu.vn",
+    email: "tuan.pm@stu.ptit.edu.vn",
     major: "Kỹ thuật phần mềm",
     gpa: 1.8
   }
@@ -46,6 +46,30 @@ export const useFetch = (url, options = {}) => {
 
     const localSaved = localStorage.getItem("students_hooks_db");
 
+    const getMigratedData = () => {
+      if (!localSaved) return DEFAULT_STUDENTS_MOCK;
+      try {
+        const parsed = JSON.parse(localSaved);
+        if (Array.isArray(parsed)) {
+          let updated = false;
+          const migrated = parsed.map((item) => {
+            if (item.email && item.email.includes("@student.edu.vn")) {
+              updated = true;
+              return { ...item, email: item.email.replace("@student.edu.vn", "@stu.ptit.edu.vn") };
+            }
+            return item;
+          });
+          if (updated) {
+            localStorage.setItem("students_hooks_db", JSON.stringify(migrated));
+          }
+          return migrated;
+        }
+        return DEFAULT_STUDENTS_MOCK;
+      } catch (e) {
+        return DEFAULT_STUDENTS_MOCK;
+      }
+    };
+
     try {
       if (url && url.startsWith("http")) {
         const response = await fetch(url, options);
@@ -57,12 +81,12 @@ export const useFetch = (url, options = {}) => {
         localStorage.setItem("students_hooks_db", JSON.stringify(json));
       } else {
         await new Promise((resolve) => setTimeout(resolve, 400));
-        const initial = localSaved ? JSON.parse(localSaved) : DEFAULT_STUDENTS_MOCK;
+        const initial = getMigratedData();
         setData(initial);
       }
     } catch (err) {
       console.warn("Lỗi fetch MockAPI (dùng dữ liệu offline):", err.message);
-      const fallback = localSaved ? JSON.parse(localSaved) : DEFAULT_STUDENTS_MOCK;
+      const fallback = getMigratedData();
       setData(fallback);
       setError("Không thể kết nối đến MockAPI trực tuyến. Ứng dụng tự động chuyển sang chế độ dữ liệu offline.");
     } finally {
