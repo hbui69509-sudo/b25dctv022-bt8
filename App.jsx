@@ -1,0 +1,618 @@
+const { useState, useMemo, useContext, createContext, useEffect, useCallback } = React;
+
+const ThemeContext = createContext();
+
+const ThemeProvider = ({ children }) => {
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem("app_theme") || "light";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("app_theme", theme);
+    document.body.className = theme === "dark" ? "theme-dark" : "theme-light";
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === "light" ? "dark" : "light"));
+  };
+
+  return (
+    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  );
+};
+
+const useTheme = () => useContext(ThemeContext);
+
+const DEFAULT_STUDENTS_MOCK = [
+  {
+    id: "SV01",
+    name: "Nguyễn Văn An",
+    dob: "2003-05-15",
+    email: "an.nv@student.edu.vn",
+    major: "Công nghệ thông tin",
+    gpa: 3.6
+  },
+  {
+    id: "SV02",
+    name: "Trần Thị Bích",
+    dob: "2003-08-20",
+    email: "bich.tt@student.edu.vn",
+    major: "Khoa học máy tính",
+    gpa: 3.85
+  },
+  {
+    id: "SV03",
+    name: "Lê Hoàng Long",
+    dob: "2002-11-03",
+    email: "long.lh@student.edu.vn",
+    major: "Hệ thống thông tin",
+    gpa: 2.7
+  },
+  {
+    id: "SV04",
+    name: "Phạm Minh Tuấn",
+    dob: "2003-02-18",
+    email: "tuan.pm@student.edu.vn",
+    major: "Kỹ thuật phần mềm",
+    gpa: 1.8
+  }
+];
+
+const useFetch = (url) => {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    const localSaved = localStorage.getItem("students_hooks_db");
+
+    try {
+      if (url && url.trim().startsWith("http")) {
+        const response = await fetch(url.trim());
+        if (!response.ok) {
+          throw new Error(`Mã lỗi HTTP: ${response.status}`);
+        }
+        const json = await response.json();
+        setData(json);
+        localStorage.setItem("students_hooks_db", JSON.stringify(json));
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const initial = localSaved ? JSON.parse(localSaved) : DEFAULT_STUDENTS_MOCK;
+        setData(initial);
+      }
+    } catch (err) {
+      console.warn("useFetch Warning:", err.message);
+      const fallback = localSaved ? JSON.parse(localSaved) : DEFAULT_STUDENTS_MOCK;
+      setData(fallback);
+      setError(`MockAPI thông báo: ${err.message} (Đang dùng dữ liệu offline)`);
+    } finally {
+      setLoading(false);
+    }
+  }, [url]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const updateData = (updater) => {
+    setData((prev) => {
+      const updated = typeof updater === "function" ? updater(prev || []) : updater;
+      localStorage.setItem("students_hooks_db", JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  return { data, loading, error, refetch: fetchData, setData: updateData };
+};
+
+const StudentManagement = () => {
+  const { theme, toggleTheme } = useTheme();
+
+  const [apiUrl, setApiUrl] = useState("");
+  const [inputUrl, setInputUrl] = useState("");
+
+  const { data: students, loading, error, refetch, setData: setStudents } = useFetch(apiUrl);
+
+  const [formData, setFormData] = useState({
+    id: "",
+    name: "",
+    dob: "",
+    email: "",
+    major: "Công nghệ thông tin",
+    gpa: ""
+  });
+  const [errors, setErrors] = useState({});
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    student: null
+  });
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value
+    }));
+    if (errors[name]) {
+      setErrors((prev) => ({ ...prev, [name]: "" }));
+    }
+  };
+
+  const validateForm = () => {
+    const errs = {};
+    const studentList = students || [];
+
+    if (!formData.id.trim()) {
+      errs.id = "Mã sinh viên không được để trống";
+    } else if (!isEditing) {
+      const isDuplicate = studentList.some(
+        (s) => s.id.toLowerCase() === formData.id.trim().toLowerCase()
+      );
+      if (isDuplicate) {
+        errs.id = "Mã sinh viên đã tồn tại";
+      }
+    }
+
+    if (!formData.name.trim()) {
+      errs.name = "Họ và tên không được để trống";
+    } else if (formData.name.trim().length < 2) {
+      errs.name = "Họ tên phải có ít nhất 2 ký tự";
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!formData.email.trim()) {
+      errs.email = "Email không được để trống";
+    } else if (!emailRegex.test(formData.email.trim())) {
+      errs.email = "Email không đúng định dạng";
+    }
+
+    if (!formData.dob) {
+      errs.dob = "Vui lòng chọn ngày sinh";
+    }
+
+    if (formData.gpa === "" || formData.gpa === null || formData.gpa === undefined) {
+      errs.gpa = "GPA không được để trống";
+    } else {
+      const gpaNum = parseFloat(formData.gpa);
+      if (isNaN(gpaNum)) {
+        errs.gpa = "GPA phải là một số hợp lệ";
+      } else if (gpaNum < 0 || gpaNum > 4) {
+        errs.gpa = "GPA phải nằm trong khoảng từ 0.0 đến 4.0";
+      }
+    }
+
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!validateForm()) return;
+
+    const cleanGpa = parseFloat(formData.gpa);
+
+    if (isEditing) {
+      setStudents((prev) =>
+        prev.map((s) => (s.id === editingId ? { ...formData, gpa: cleanGpa } : s))
+      );
+    } else {
+      const newStudent = {
+        ...formData,
+        id: formData.id.trim().toUpperCase(),
+        name: formData.name.trim(),
+        email: formData.email.trim(),
+        gpa: cleanGpa
+      };
+      setStudents((prev) => [newStudent, ...prev]);
+    }
+
+    setFormData({
+      id: "",
+      name: "",
+      dob: "",
+      email: "",
+      major: "Công nghệ thông tin",
+      gpa: ""
+    });
+    setIsEditing(false);
+    setEditingId(null);
+    setErrors({});
+  };
+
+  const handleEdit = (student) => {
+    setFormData({
+      id: student.id,
+      name: student.name,
+      dob: student.dob,
+      email: student.email,
+      major: student.major,
+      gpa: student.gpa
+    });
+    setIsEditing(true);
+    setEditingId(student.id);
+    setErrors({});
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleCancelEdit = () => {
+    setFormData({
+      id: "",
+      name: "",
+      dob: "",
+      email: "",
+      major: "Công nghệ thông tin",
+      gpa: ""
+    });
+    setIsEditing(false);
+    setEditingId(null);
+    setErrors({});
+  };
+
+  const handleOpenDeleteModal = (student) => {
+    setConfirmModal({
+      isOpen: true,
+      student
+    });
+  };
+
+  const handleCloseDeleteModal = () => {
+    setConfirmModal({
+      isOpen: false,
+      student: null
+    });
+  };
+
+  const handleConfirmDelete = () => {
+    const { student } = confirmModal;
+    if (!student) return;
+
+    setStudents((prev) => prev.filter((s) => s.id !== student.id));
+    if (editingId === student.id) {
+      handleCancelEdit();
+    }
+    handleCloseDeleteModal();
+  };
+
+  const handleApplyApiUrl = (e) => {
+    e.preventDefault();
+    setApiUrl(inputUrl);
+  };
+
+  const filteredStudents = useMemo(() => {
+    if (!students) return [];
+    return students.filter((s) =>
+      s.name.toLowerCase().includes(searchTerm.toLowerCase().trim())
+    );
+  }, [students, searchTerm]);
+
+  const renderGpaBadge = (gpa) => {
+    let badgeClass = "gpa-badge ";
+    let rank = "";
+    if (gpa >= 3.6) {
+      badgeClass += "gpa-high";
+      rank = "Xuất sắc";
+    } else if (gpa >= 3.2) {
+      badgeClass += "gpa-high";
+      rank = "Giỏi";
+    } else if (gpa >= 2.5) {
+      badgeClass += "gpa-medium";
+      rank = "Khá";
+    } else {
+      badgeClass += "gpa-low";
+      rank = "Trung bình/Yếu";
+    }
+
+    return (
+      <span className={badgeClass} title={rank}>
+        {typeof gpa === "number" ? gpa.toFixed(2) : gpa} ({rank})
+      </span>
+    );
+  };
+
+  return (
+    <div className="container">
+      <header className="header">
+        <div>
+          <h1>Quản Lý Sinh Viên</h1>
+          <p style={{ marginTop: "4px", opacity: 0.9 }}>
+            LTW Bài 9: Function Component & React Hooks
+          </p>
+        </div>
+        <div className="header-controls">
+          <span className="badge">Hooks + Context</span>
+          <button className="theme-toggle-btn" onClick={toggleTheme}>
+            {theme === "light" ? "Chế độ tối" : "Chế độ sáng"}
+          </button>
+        </div>
+      </header>
+
+      <div className="api-bar">
+        <form onSubmit={handleApplyApiUrl} className="api-input-wrap">
+          <input
+            type="text"
+            className="form-control"
+            placeholder="URL MockAPI (mockapi.io) hoặc để trống để dùng dữ liệu mẫu"
+            value={inputUrl}
+            onChange={(e) => setInputUrl(e.target.value)}
+          />
+          <button type="submit" className="btn btn-primary btn-sm">
+            Kết nối API
+          </button>
+        </form>
+        <div>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={refetch}
+          >
+            Tải lại
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div
+          style={{
+            background: "rgba(239, 68, 68, 0.1)",
+            color: "#ef4444",
+            padding: "8px 12px",
+            borderRadius: "4px",
+            marginBottom: "16px",
+            fontSize: "13px"
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      <section className="card">
+        <h2 className="card-title">
+          {isEditing ? "Cập nhật thông tin sinh viên" : "Thêm sinh viên mới"}
+        </h2>
+        <form onSubmit={handleSubmit}>
+          <div className="form-grid">
+            <div className="form-group">
+              <label>
+                Mã Sinh Viên <span className="required">*</span>
+              </label>
+              <input
+                type="text"
+                name="id"
+                className={`form-control ${errors.id ? "is-invalid" : ""}`}
+                placeholder="Ví dụ: SV05"
+                value={formData.id}
+                onChange={handleInputChange}
+                disabled={isEditing}
+              />
+              {errors.id && <div className="invalid-feedback">{errors.id}</div>}
+            </div>
+
+            <div className="form-group">
+              <label>
+                Họ và Tên <span className="required">*</span>
+              </label>
+              <input
+                type="text"
+                name="name"
+                className={`form-control ${errors.name ? "is-invalid" : ""}`}
+                placeholder="Ví dụ: Đỗ Phương Thảo"
+                value={formData.name}
+                onChange={handleInputChange}
+              />
+              {errors.name && <div className="invalid-feedback">{errors.name}</div>}
+            </div>
+
+            <div className="form-group">
+              <label>
+                Ngày Sinh <span className="required">*</span>
+              </label>
+              <input
+                type="date"
+                name="dob"
+                className={`form-control ${errors.dob ? "is-invalid" : ""}`}
+                value={formData.dob}
+                onChange={handleInputChange}
+              />
+              {errors.dob && <div className="invalid-feedback">{errors.dob}</div>}
+            </div>
+
+            <div className="form-group">
+              <label>
+                Email <span className="required">*</span>
+              </label>
+              <input
+                type="email"
+                name="email"
+                className={`form-control ${errors.email ? "is-invalid" : ""}`}
+                placeholder="thao.dp@student.edu.vn"
+                value={formData.email}
+                onChange={handleInputChange}
+              />
+              {errors.email && <div className="invalid-feedback">{errors.email}</div>}
+            </div>
+
+            <div className="form-group">
+              <label>Chuyên Ngành</label>
+              <select
+                name="major"
+                className="form-control"
+                value={formData.major}
+                onChange={handleInputChange}
+              >
+                <option value="Công nghệ thông tin">Công nghệ thông tin</option>
+                <option value="Khoa học máy tính">Khoa học máy tính</option>
+                <option value="Kỹ thuật phần mềm">Kỹ thuật phần mềm</option>
+                <option value="Hệ thống thông tin">Hệ thống thông tin</option>
+                <option value="An toàn thông tin">An toàn thông tin</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>
+                Điểm GPA (Thang 4) <span className="required">*</span>
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max="4"
+                name="gpa"
+                className={`form-control ${errors.gpa ? "is-invalid" : ""}`}
+                placeholder="0.0 - 4.0"
+                value={formData.gpa}
+                onChange={handleInputChange}
+              />
+              {errors.gpa ? (
+                <div className="invalid-feedback">{errors.gpa}</div>
+              ) : (
+                <small style={{ color: "var(--text-secondary)", fontSize: "11px", marginTop: "3px" }}>
+                  Khoảng giá trị: 0.0 đến 4.0
+                </small>
+              )}
+            </div>
+          </div>
+
+          <div className="form-actions">
+            <button type="submit" className="btn btn-primary">
+              {isEditing ? "Lưu thay đổi" : "Thêm sinh viên"}
+            </button>
+            {isEditing && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={handleCancelEdit}
+              >
+                Hủy
+              </button>
+            )}
+          </div>
+        </form>
+      </section>
+
+      <section className="card">
+        <div className="table-toolbar">
+          <div className="search-box">
+            <input
+              type="text"
+              placeholder="Tìm kiếm theo tên sinh viên..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          <div className="stats-count">
+            Hiển thị: <strong>{filteredStudents.length}</strong> / {students ? students.length : 0} sinh viên
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="loading-wrap">
+            Đang tải dữ liệu...
+          </div>
+        ) : (
+          <div className="table-responsive">
+            {filteredStudents.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "30px", color: "var(--text-secondary)" }}>
+                {searchTerm
+                  ? `Không tìm thấy sinh viên khớp với "${searchTerm}"`
+                  : "Chưa có dữ liệu sinh viên"}
+              </div>
+            ) : (
+              <table className="student-table">
+                <thead>
+                  <tr>
+                    <th>Mã SV</th>
+                    <th>Họ và Tên</th>
+                    <th>Ngày Sinh</th>
+                    <th>Email</th>
+                    <th>Chuyên Ngành</th>
+                    <th>GPA (0 - 4)</th>
+                    <th>Hành Động</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredStudents.map((student) => (
+                    <tr key={student.id}>
+                      <td><strong>{student.id}</strong></td>
+                      <td>{student.name}</td>
+                      <td>{student.dob}</td>
+                      <td>{student.email}</td>
+                      <td>{student.major}</td>
+                      <td>{renderGpaBadge(student.gpa)}</td>
+                      <td>
+                        <div className="action-buttons">
+                          <button
+                            className="btn btn-warning btn-sm"
+                            onClick={() => handleEdit(student)}
+                          >
+                            Sửa
+                          </button>
+                          <button
+                            className="btn btn-danger btn-sm"
+                            onClick={() => handleOpenDeleteModal(student)}
+                          >
+                            Xóa
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </section>
+
+      {confirmModal.isOpen && confirmModal.student && (
+        <div className="modal-overlay" onClick={handleCloseDeleteModal}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <span>Xác nhận xóa sinh viên</span>
+            </div>
+            <div className="modal-body">
+              Bạn có chắc chắn muốn xóa sinh viên:
+              <br />
+              <strong>{confirmModal.student.name}</strong> (Mã SV: {confirmModal.student.id})?
+            </div>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={handleCloseDeleteModal}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={handleConfirmDelete}
+              >
+                Xóa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const App = () => {
+  return (
+    <ThemeProvider>
+      <StudentManagement />
+    </ThemeProvider>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
