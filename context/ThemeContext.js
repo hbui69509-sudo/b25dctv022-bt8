@@ -1,4 +1,4 @@
-const { createContext, useContext, useState, useEffect } = React;
+  const { createContext, useContext, useState, useEffect } = React;
 
 export const ThemeContext = createContext();
 
